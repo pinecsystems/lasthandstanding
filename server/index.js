@@ -1,6 +1,5 @@
 const WebSocket = require('ws');
 const GameEngine = require('./src/game/GameEngine');
-const AI = require('./src/game/BotAI');
 
 const PORT = process.env.PORT || 3001;
 const ROOM_CODE_LEN = 4;
@@ -78,22 +77,19 @@ function finishGame(room) {
 }
 
 function startGame(room) {
-  const hostId = room.hostId;
   const humanPlayers = room.players.filter(p => !p.isBot);
-  const botsNeeded = room.playerCount - humanPlayers.length;
+  if (humanPlayers.length < 2) {
+    for (const client of room.clients) {
+      send(client, { type: 'error', message: 'Need at least 2 players to start' });
+    }
+    return;
+  }
 
-  const game = new GameEngine('online_' + Date.now(), room.playerCount, room.difficulty);
+  const game = new GameEngine('online_' + Date.now(), humanPlayers.length, room.difficulty);
   game.isOnline = true;
 
   for (const p of humanPlayers) {
     game.addPlayer(p.id, p.name, false, null);
-  }
-
-  const pers = AI.getPersonalities(botsNeeded);
-  for (let i = 0; i < botsNeeded; i++) {
-    const botId = 'bot_' + Date.now() + '_' + i;
-    const botName = AI.getRandomName();
-    game.addPlayer(botId, botName, true, pers[i]);
   }
 
   room.game = game;
@@ -104,11 +100,6 @@ function startGame(room) {
     if (!pid) continue;
     const state = game.getStateForPlayer(pid);
     send(client, { type: 'game_started', state });
-  }
-
-  const cp = game.getCurrentPlayer();
-  if (cp && cp.isBot) {
-    setTimeout(() => processBotLoop(room), 500);
   }
 }
 
