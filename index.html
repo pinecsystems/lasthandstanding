@@ -387,7 +387,7 @@ const COMMENTARY=[
   'Can {name} keep this up?','{name} is dominating with {card}!',
   'What a sequence from {name}!','{name} plays it safe with {card}'
 ];
-const SERVER_URL = localStorage.getItem('lhs_server_url') || 'ws://localhost:3001';
+const SERVER_URL = localStorage.getItem('lhs_server_url') || 'wss://lhs-server.onrender.com';
 
 let cardIdCounter=0;
 function uid(){return 'c'+(++cardIdCounter)+'_'+Date.now()+'_'+Math.random().toString(36).substr(2,6)}
