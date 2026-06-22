@@ -4,6 +4,7 @@ const GameEngine = require('./src/game/GameEngine');
 const PORT = process.env.PORT || 3001;
 const ROOM_CODE_LEN = 4;
 const PLAYER_COUNTS = [4, 8, 16, 32];
+const DEFAULT_QUICK_PLAY_COUNT = 8;
 
 const rooms = new Map();
 const clientRoom = new Map();
@@ -158,6 +159,10 @@ server.on('connection', (ws) => {
         send(ws, { type: 'room_joined', roomCode: code, playerId, players: room.players });
         broadcast(room, { type: 'player_joined', playerId, playerName: name }, ws);
         console.log(`${name} joined room ${code}`);
+        if (room.players.length >= room.playerCount) {
+          console.log(`Room ${code} full, starting!`);
+          startGame(room);
+        }
         break;
       }
 
@@ -199,6 +204,62 @@ server.on('connection', (ws) => {
             console.log(`Game started in room ${code}`);
             break;
           }
+        }
+        break;
+      }
+
+      case 'list_rooms': {
+        const openRooms = [];
+        for (const [code, room] of rooms) {
+          if (!room.game && room.players.length < room.playerCount && room.players.length > 0) {
+            openRooms.push({
+              code,
+              playerCount: room.playerCount,
+              playerCountCurrent: room.players.length,
+              hostName: (room.players.find(p => p.id === room.hostId) || room.players[0])?.name || 'Unknown'
+            });
+          }
+        }
+        send(ws, { type: 'room_list', rooms: openRooms });
+        break;
+      }
+
+      case 'quick_play': {
+        const qpName = (msg.playerName || 'Player').trim().substring(0, 20) || 'Player';
+        let targetRoom = null;
+        let targetCode = null;
+        for (const [code, room] of rooms) {
+          if (!room.game && room.players.length < room.playerCount) {
+            targetRoom = room;
+            targetCode = code;
+            break;
+          }
+        }
+        if (targetRoom) {
+          const qpId = 'p_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+          targetRoom.players.push({ id: qpId, name: qpName, isBot: false, personality: null });
+          targetRoom.clients.push(ws);
+          clientRoom.set(ws, qpId);
+          send(ws, { type: 'room_joined', roomCode: targetCode, playerId: qpId, players: targetRoom.players });
+          broadcast(targetRoom, { type: 'player_joined', playerId: qpId, playerName: qpName }, ws);
+          console.log(`${qpName} quick-joined room ${targetCode}`);
+          if (targetRoom.players.length >= targetRoom.playerCount) {
+            console.log(`Room ${targetCode} full, starting!`);
+            startGame(targetRoom);
+          }
+        } else {
+          const code = generateRoomCode();
+          const qpId = 'host_' + Date.now();
+          const room = {
+            code, hostId: qpId, playerCount: DEFAULT_QUICK_PLAY_COUNT,
+            difficulty: 'medium',
+            players: [{ id: qpId, name: qpName, isBot: false, personality: null }],
+            clients: [ws], game: null, _botTimeout: null
+          };
+          rooms.set(code, room);
+          clientRoom.set(ws, qpId);
+          send(ws, { type: 'room_created', roomCode: code, playerId: qpId, players: room.players });
+          console.log(`Room ${code} created via quick play by ${qpName}`);
         }
         break;
       }

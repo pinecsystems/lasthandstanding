@@ -682,7 +682,7 @@ const S={
   speed:1,debug:false,isMobile:false,deviceType:'desktop',
   pendingEvent:null,_eventTimeout:null,
   roomCode:null,partyHost:false,partyPlayers:[],partyChannel:null,
-  online:false,ws:null,onlinePlayers:[],onlineMyId:null,_wsReconnectTimer:null,roomHost:false,
+  online:false,ws:null,onlinePlayers:[],onlineMyId:null,_wsReconnectTimer:null,roomHost:false,onlineRooms:[],_roomListTimer:null,
   settings:{stormSpeed:1,targetMode:'random',elimThreshold:25},
   targetPicker:null,
   tournament:null,partyIsChamp:false,partyBestOf:3,partyRound:0,partyStandings:{}
@@ -778,6 +778,10 @@ function handleServerMessage(msg){
       S.botThinking={botId:msg.botId,botName:msg.botName,delay:msg.delay};
       if(S.screen==='game')updateGameUI();
       setTimeout(()=>{S.botThinking=null;if(S.screen==='game')updateGameUI()},msg.delay||300);
+      break;
+    case'room_list':
+      S.onlineRooms=msg.rooms||[];
+      if($('onlineRoomList'))renderOnlineRoomList();
       break;
     case'error':
       showToast(msg.message,'danger',3000);
@@ -1082,14 +1086,53 @@ function leaveParty(){
 
 // ---------- ONLINE ----------
 function showOnlineModal(){
-  app.insertAdjacentHTML('beforeend','<div class="modal-overlay" id="onlineModal" onclick="closeModal(\'onlineModal\')" role="dialog" aria-modal="true"><div class="modal" onclick="event.stopPropagation()"><h2>🌐 Online Play</h2><p class="modal-desc">Play with others over the internet</p><div style="display:flex;flex-direction:column;gap:12px"><button class="modal-btn purple" onclick="createOnlineRoom()">🎮 Create Room</button><div style="text-align:center;color:var(--text2);font-size:var(--font-xs)">— or —</div><div class="room-input"><input type="text" id="onlineRoomCodeInput" placeholder="CODE" maxlength="4" style="text-transform:uppercase" aria-label="Room code"><button onclick="joinOnlineRoom()">Join</button></div><div style="margin-top:8px;padding-top:12px;border-top:1px solid rgba(255,255,255,.05)"><label style="font-size:var(--font-xs);color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer"><span>Server:</span><input type="text" id="serverUrlInput" value="'+SERVER_URL+'" style="flex:1;background:var(--bg3);border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:4px 8px;color:var(--text);font-size:10px;font-family:monospace" placeholder="ws://localhost:3001"></label></div></div></div></div>');
+  S.onlineRooms=[];S._roomListTimer=null;
+  app.insertAdjacentHTML('beforeend','<div class="modal-overlay" id="onlineModal" onclick="closeModal(\'onlineModal\')" role="dialog" aria-modal="true"><div class="modal" onclick="event.stopPropagation()"><h2>🌐 Online Battle Royale</h2><p class="modal-desc">Play with others over the internet</p><button class="modal-btn" onclick="quickPlay()" style="font-size:var(--font-lg);padding:clamp(14px,2vw,20px);margin-bottom:12px">⚡ QUICK PLAY</button><div style="text-align:center;color:var(--text2);font-size:var(--font-xs);margin-bottom:8px">— Open Rooms —</div><div id="onlineRoomList" style="max-height:160px;overflow-y:auto;margin-bottom:8px"><div style="text-align:center;color:var(--text3);font-size:var(--font-xs);padding:8px">Loading...</div></div><div style="border-top:1px solid rgba(255,255,255,.05);padding-top:10px;margin-top:4px"><div class="room-input" style="margin-bottom:6px"><input type="text" id="onlineRoomCodeInput" placeholder="ROOM CODE" maxlength="4" style="text-transform:uppercase;flex:1;background:var(--bg3);border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:8px;color:var(--text);font-size:var(--font-sm);font-weight:700;text-align:center;font-family:\'Press Start 2P\',monospace"><button onclick="joinOnlineRoom()" style="padding:8px 16px;background:var(--accent);color:#fff;border-radius:6px;font-weight:700">Join</button></div><button class="modal-btn purple" onclick="createOnlineRoom()" style="padding:8px;font-size:var(--font-sm);margin-top:4px">🎮 Create Room</button></div><div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.05)"><label style="font-size:var(--font-xs);color:var(--text2);display:flex;align-items:center;gap:6px"><span>Server:</span><input type="text" id="serverUrlInput" value="'+SERVER_URL+'" style="flex:1;background:var(--bg3);border:1px solid rgba(255,255,255,.1);border-radius:6px;padding:4px 8px;color:var(--text);font-size:10px;font-family:monospace"></label></div></div></div>');
+  connectToServer();
   setTimeout(()=>{
     const si=$('serverUrlInput');
     if(si)si.addEventListener('change',()=>{localStorage.setItem('lhs_server_url',si.value);location.reload()});
-  },50);
+    fetchRoomList();
+    S._roomListTimer=setInterval(fetchRoomList,5000);
+  },100);
+}
+function fetchRoomList(){
+  if(S.ws&&S.ws.readyState===WebSocket.OPEN){
+    sendToServer({type:'list_rooms'});
+  }
+}
+function renderOnlineRoomList(){
+  const el=$('onlineRoomList');
+  if(!el)return;
+  const rooms=S.onlineRooms||[];
+  if(rooms.length===0){
+    el.innerHTML='<div style="text-align:center;color:var(--text3);font-size:var(--font-xs);padding:8px">No open rooms — click Quick Play!</div>';
+    return;
+  }
+  el.innerHTML=rooms.map(r=>'<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;background:var(--bg3);border-radius:6px;margin-bottom:4px"><span style="font-size:var(--font-sm);font-weight:700;font-family:\'Press Start 2P\',monospace;color:var(--accent);font-size:11px;letter-spacing:1px">'+escHtml(r.code)+'</span><span style="font-size:var(--font-xs);color:var(--text2);flex:1;margin:0 8px">'+escHtml(r.hostName)+'</span><span style="font-size:var(--font-xs);color:var(--text2)">'+r.playerCountCurrent+'/'+r.playerCount+'</span><button onclick="quickJoinRoom(\''+r.code+'\')" style="margin-left:8px;padding:4px 10px;background:rgba(46,204,113,.15);border:1px solid rgba(46,204,113,.3);border-radius:5px;color:var(--success);font-size:10px;font-weight:700">Join</button></div>').join('');
+}
+function quickPlay(){
+  closeModal('onlineModal');
+  if(S._roomListTimer){clearInterval(S._roomListTimer);S._roomListTimer=null}
+  const name=S.playerName.trim()||'Player';
+  connectToServer();
+  if(!S.ws){setTimeout(quickPlay,500);return}
+  S.roomHost=false;
+  sendToServer({type:'quick_play',playerName:name});
+  showToast('Finding a game...','info',3000);
+}
+function quickJoinRoom(code){
+  closeModal('onlineModal');
+  if(S._roomListTimer){clearInterval(S._roomListTimer);S._roomListTimer=null}
+  const name=S.playerName.trim()||'Player';
+  connectToServer();
+  if(!S.ws){setTimeout(()=>quickJoinRoom(code),500);return}
+  S.roomHost=false;
+  sendToServer({type:'join_room',roomCode:code,playerName:name});
 }
 function createOnlineRoom(){
   closeModal('onlineModal');
+  if(S._roomListTimer){clearInterval(S._roomListTimer);S._roomListTimer=null}
   const name=S.playerName.trim()||'Player';
   connectToServer();
   if(!S.ws){setTimeout(createOnlineRoom,500);return}
@@ -1102,6 +1145,7 @@ function joinOnlineRoom(){
   const code=inp.value.toUpperCase().trim();
   if(code.length!==4){showToast('Enter a 4-character code','warn');return}
   closeModal('onlineModal');
+  if(S._roomListTimer){clearInterval(S._roomListTimer);S._roomListTimer=null}
   const name=S.playerName.trim()||'Player';
   connectToServer();
   if(!S.ws){setTimeout(()=>joinOnlineRoom(),500);return}
@@ -1121,6 +1165,7 @@ function startOnlineGame(){
   showToast('Starting game...','info',2000);
 }
 function leaveOnlineRoom(){
+  if(S._roomListTimer){clearInterval(S._roomListTimer);S._roomListTimer=null}
   sendToServer({type:'leave_room'});
   disconnectFromServer();
   backToMenu();
