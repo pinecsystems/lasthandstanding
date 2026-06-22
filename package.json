@@ -1,0 +1,11 @@
+{
+  "name": "last-hand-standing",
+  "version": "2.0.0",
+  "description": "Last Hand Standing - Online Battle Royale Card Game",
+  "private": true,
+  "scripts": {
+    "dev:server": "cd server && npm run dev",
+    "start": "cd server && npm start",
+    "start:server": "cd server && npm start"
+  }
+}
